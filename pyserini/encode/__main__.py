@@ -21,14 +21,19 @@ from pyserini.encode import JsonlRepresentationWriter, FaissRepresentationWriter
 from pyserini.encode import DprDocumentEncoder, TctColBertDocumentEncoder, AnceDocumentEncoder, AutoDocumentEncoder
 from pyserini.encode import UniCoilDocumentEncoder
 
+from pyserini.encode._auto import SentenceTransformerDocumentEncoder, InstructorDocumentEncoder
 
 encoder_class_map = {
     "dpr": DprDocumentEncoder,
     "tct_colbert": TctColBertDocumentEncoder,
     "ance": AnceDocumentEncoder,
-    "sentence-transformers": AutoDocumentEncoder,
+    # "sentence-transformers": AutoDocumentEncoder,
+    "sentence-transformers": SentenceTransformerDocumentEncoder,
     "unicoil": UniCoilDocumentEncoder,
     "auto": AutoDocumentEncoder,
+    "contriever": AutoDocumentEncoder,
+    "-instruct": SentenceTransformerDocumentEncoder, # for the llm based instruct model: e5-mistral-instruct / qwen-instruct
+    "instructor-": InstructorDocumentEncoder, # for instructor-base, instructor-large, instructor-xl
 }
 
 def init_encoder(encoder, encoder_class, device):
@@ -52,11 +57,10 @@ def init_encoder(encoder, encoder_class, device):
 
     # prepare arguments to encoder class
     kwargs = dict(model_name=encoder, device=device)
-    if (_encoder_class == "sentence-transformers") or ("sentence-transformers" in encoder):
-        kwargs.update(dict(pooling='mean', l2_norm=True))
+    # if (_encoder_class == "sentence-transformers") or ("sentence-transformers" in encoder):
+    #     kwargs.update(dict(pooling='mean', l2_norm=True))
     if (_encoder_class == "contriever") or ("contriever" in encoder):
         kwargs.update(dict(pooling='mean', l2_norm=False))
-
     return encoder_class(**kwargs)
 
 
@@ -101,10 +105,11 @@ if __name__ == '__main__':
     encoder_parser = commands.add_parser('encoder')
     encoder_parser.add_argument('--encoder', type=str, help='encoder name or path', required=True)
     encoder_parser.add_argument('--encoder-class', type=str, required=False, default=None,
-                                choices=["dpr", "bpr", "tct_colbert", "ance", "sentence-transformers", "auto"],
+                                choices=["dpr", "bpr", "tct_colbert", "ance", "sentence-transformers", "auto", "contriever"],
                                 help='which query encoder class to use. `default` would infer from the args.encoder')
     encoder_parser.add_argument('--fields', help='fields to encode', nargs='+', default=['text'], required=False)
     encoder_parser.add_argument('--batch-size', type=int, help='batch size', default=64, required=False)
+    # this is a finding 26.07.2024 -> theoretically, the max length is set to be 256 is fine -> as we set the maximum word in the document is 128. 
     encoder_parser.add_argument('--max-length', type=int, help='max length', default=256, required=False)
     encoder_parser.add_argument('--dimension', type=int, help='dimension', default=768, required=False)
     encoder_parser.add_argument('--device', type=str, help='device cpu or cuda [cuda:0, cuda:1...]',

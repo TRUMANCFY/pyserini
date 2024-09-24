@@ -484,11 +484,7 @@ def get_topics_with_reader(reader_class, file):
     t = {}
     for topic in topics.keySet().toArray():
         
-        if topic.isdigit():
-            # parse the keys into integers
-            topic_key = int(topic)
-        else:
-            topic_key = topic
+        topic_key = topic
             
         t[topic_key] = {}
         for key in topics.get(topic).keySet().toArray():

@@ -30,6 +30,12 @@ from urllib.error import HTTPError, URLError
 class TopicsFormat(Enum):
     DEFAULT = 'default'
     KILT = 'kilt'
+    INSTRUCT = 'instruct'
+
+def readjsonl(_path):
+    with open(_path, 'r') as f:
+        lines = [json.loads(line.strip()) for line in f.readlines()]
+    return lines
 
 
 class QueryIterator(ABC):
@@ -93,6 +99,8 @@ class DefaultQueryIterator(QueryIterator):
                     topics = get_topics_with_reader('io.anserini.search.topicreader.TsvStringTopicReader', topics_path)
             elif topics_path.endswith('.trec'):
                 topics = get_topics_with_reader('io.anserini.search.topicreader.TrecTopicReader', topics_path)
+            elif topics_path.endswith('.jsonl'):
+                topics = get_topics_with_reader('io.anserini.search.topicreader.JsonStringTopicReader', topics_path)
             elif 'cacm' in topics_path:
                 topics = get_topics_with_reader('io.anserini.search.topicreader.CacmTopicReader', topics_path)
             else:
@@ -151,9 +159,34 @@ class KiltQueryIterator(QueryIterator):
         raise ValueError(f'Unable to download encoded query at any known URLs.')
 
 
+class InstructQueryIterator(QueryIterator):
+    SPLIT_TOKEN = " [SEP] "
+
+    def get_query(self, id_):
+        return self.topics[id_].get('title')
+    
+    @classmethod
+    def from_topics(cls, topics_path: str):
+        print(f"Loading topics from {topics_path}")
+        if os.path.exists(topics_path):
+            lines = readjsonl(topics_path)
+            topics = {}
+            for line in lines:
+                if 'meta' in line:
+                    if '/followir/' in topics_path:
+                        topics[line['id']] = {"title": InstructQueryIterator.SPLIT_TOKEN.join([line['meta']['instruction'], line['meta']['src_query']])}
+                    # the folder name is instruction_pir
+                    elif '/pir/' in topics_path:
+                        topics[line['id']] = {'title': InstructQueryIterator.SPLIT_TOKEN.join([line['meta']['perspective'], line['meta']['src_query']])}
+                else:
+                    topics[line['id']] = line
+
+        return cls(topics, None)
+
 def get_query_iterator(topics_path: str, topics_format: TopicsFormat):
     mapping = {
         TopicsFormat.DEFAULT: DefaultQueryIterator,
         TopicsFormat.KILT: KiltQueryIterator,
+        TopicsFormat.INSTRUCT: InstructQueryIterator,
     }
     return mapping[topics_format].from_topics(topics_path)

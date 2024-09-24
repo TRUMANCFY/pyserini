@@ -38,7 +38,12 @@ from pyserini.index import Document
 from ._model import AnceEncoder
 import torch
 
-from ...encode import PcaEncoder
+from ...encode import PcaEncoder, SentenceTransformerQueryEncoder, InstructorQueryEncoder
+
+# Customize
+from collections import OrderedDict
+import warnings
+
 
 if is_faiss_available():
     import faiss
@@ -122,11 +127,17 @@ class DprQueryEncoder(QueryEncoder):
     def __init__(self, encoder_dir: str = None, tokenizer_name: str = None,
                  encoded_query_dir: str = None, device: str = 'cpu', **kwargs):
         super().__init__(encoded_query_dir)
+        self.from_local = False
         if encoder_dir:
             self.device = device
-            self.model = DPRQuestionEncoder.from_pretrained(encoder_dir)
+            if os.path.exists(encoder_dir):
+                self.from_local = True
+                self.load_from_checkpoint(encoder_dir)
+            else:
+                self.model = DPRQuestionEncoder.from_pretrained(encoder_dir)
+                self.tokenizer = DPRQuestionEncoderTokenizer.from_pretrained(tokenizer_name or encoder_dir)
+
             self.model.to(self.device)
-            self.tokenizer = DPRQuestionEncoderTokenizer.from_pretrained(tokenizer_name or encoder_dir)
             self.has_model = True
         if (not self.has_model) and (not self.has_encoded_query):
             raise Exception('Neither query encoder model nor encoded queries provided. Please provide at least one')
@@ -135,10 +146,23 @@ class DprQueryEncoder(QueryEncoder):
         if self.has_model:
             input_ids = self.tokenizer(query, return_tensors='pt')
             input_ids.to(self.device)
-            embeddings = self.model(input_ids["input_ids"]).pooler_output.detach().cpu().numpy()
+            if self.from_local:
+                return self.model(**input_ids)[0][:, 0, :].flatten().detach().cpu().numpy()
+            else:
+                embeddings = self.model(input_ids["input_ids"]).pooler_output.detach().cpu().numpy()
             return embeddings.flatten()
         else:
             return super().encode(query)
+    
+    def load_from_checkpoint(self, model_name):
+        self.model = AutoModel.from_pretrained('bert-base-uncased')
+        self.tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+        
+        checkpoint_dict = torch.load(model_name, map_location=torch.device('cpu'))
+        state = checkpoint_dict['state_dict']
+        new_state = OrderedDict((key.replace('query_encoder.transformer.', ''), value) for key, value in state.items() if key.startswith('query_encoder.transformer.'))
+        self.model.load_state_dict(new_state, strict=False)
+
 
 
 class BprQueryEncoder(QueryEncoder):
@@ -285,12 +309,19 @@ class AutoQueryEncoder(QueryEncoder):
         super().__init__(encoded_query_dir)
         if encoder_dir:
             self.device = device
-            self.model = AutoModel.from_pretrained(encoder_dir)
+            self.from_local = False
+            if os.path.exists(encoder_dir):
+                self.from_local = True
+                self.load_from_checkpoint(encoder_dir)
+            else:
+                self.model = AutoModel.from_pretrained(encoder_dir)
+                try:
+                    self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name or encoder_dir)
+                except:
+                    self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name or encoder_dir, use_fast=False)
+
             self.model.to(self.device)
-            try:
-                self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name or encoder_dir)
-            except:
-                self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name or encoder_dir, use_fast=False)
+
             self.has_model = True
             self.pooling = pooling
             self.l2_norm = l2_norm
@@ -328,6 +359,15 @@ class AutoQueryEncoder(QueryEncoder):
         else:
             return super().encode(query)
 
+    def load_from_checkpoint(self, model_name):
+        self.model = AutoModel.from_pretrained('bert-base-uncased')
+        self.tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+        
+        checkpoint_dict = torch.load(model_name, map_location=torch.device('cpu'))
+        state = checkpoint_dict['state_dict']
+        new_state = OrderedDict((key.replace('query_encoder.transformer.', ''), value) for key, value in state.items() if key.startswith('query_encoder.transformer.'))
+        self.model.load_state_dict(new_state, strict=False)
+
 
 @dataclass
 class DenseSearchResult:
@@ -354,10 +394,11 @@ class FaissSearcher:
     def __init__(self, index_dir: str, query_encoder: Union[QueryEncoder, str],
                  prebuilt_index_name: Optional[str] = None):
         requires_backends(self, "faiss")
-        if isinstance(query_encoder, QueryEncoder) or isinstance(query_encoder, PcaEncoder):
+        if isinstance(query_encoder, QueryEncoder) or isinstance(query_encoder, PcaEncoder) or isinstance(query_encoder, SentenceTransformerQueryEncoder) or isinstance(query_encoder, InstructorQueryEncoder):
             self.query_encoder = query_encoder
         else:
             self.query_encoder = self._init_encoder_from_str(query_encoder)
+        
         self.index, self.docids = self.load_index(index_dir)
         self.dimension = self.index.d
         self.num_docs = self.index.ntotal

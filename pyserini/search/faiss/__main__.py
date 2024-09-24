@@ -23,6 +23,8 @@ from tqdm import tqdm
 from pyserini.search import FaissSearcher, BinaryDenseSearcher, TctColBertQueryEncoder, QueryEncoder, \
     DprQueryEncoder, BprQueryEncoder, DkrrDprQueryEncoder, AnceQueryEncoder, AutoQueryEncoder, DenseVectorAveragePrf, \
     DenseVectorRocchioPrf, DenseVectorAncePrf
+
+from pyserini.encode import SentenceTransformerQueryEncoder, InstructorQueryEncoder
 from pyserini.encode import PcaEncoder
 from pyserini.query_iterator import get_query_iterator, TopicsFormat
 from pyserini.output_writer import get_output_writer, OutputFormat
@@ -100,9 +102,11 @@ def init_query_encoder(encoder, encoder_class, tokenizer_name, topics_name, enco
         "bpr": BprQueryEncoder,
         "tct_colbert": TctColBertQueryEncoder,
         "ance": AnceQueryEncoder,
-        "sentence": AutoQueryEncoder,
+        "sentence": SentenceTransformerQueryEncoder,
         "contriever": AutoQueryEncoder,
         "auto": AutoQueryEncoder,
+        "-instruct": SentenceTransformerQueryEncoder,
+        "instructor-": InstructorQueryEncoder,
     }
 
     if encoder:
@@ -126,8 +130,12 @@ def init_query_encoder(encoder, encoder_class, tokenizer_name, topics_name, enco
 
         # prepare arguments to encoder class
         kwargs = dict(encoder_dir=encoder, tokenizer_name=tokenizer_name, device=device, prefix=prefix)
-        if (_encoder_class == "sentence") or ("sentence" in encoder):
-            kwargs.update(dict(pooling='mean', l2_norm=True))
+        if ((_encoder_class == "sentence") or ("sentence" in encoder) or ("-instruct" in encoder) or ("instructor" in encoder)) and (not os.path.exists(encoder)):
+            kwargs = dict(model_name=encoder, tokenizer_name=tokenizer_name, device=device, prefix=prefix)
+            # kwargs.update(dict(pooling='mean', l2_norm=True))
+        elif _encoder_class == 'sentence': # path exists
+            kwargs = dict(model_name=encoder, tokenizer_name=tokenizer_name, device=device, prefix=prefix)
+
         if (_encoder_class == "contriever") or ("contriever" in encoder):
             kwargs.update(dict(pooling='mean', l2_norm=False))
         return encoder_class(**kwargs)
@@ -177,6 +185,9 @@ if __name__ == '__main__':
     parser.add_argument('--remove-query', action='store_true', default=False, help="Remove query from results list.")
     define_dsearch_args(parser)
     args = parser.parse_args()
+
+    if 'instructor' in args.encoder:
+        args.topics_format = TopicsFormat.INSTRUCT.value
 
     query_iterator = get_query_iterator(args.topics, TopicsFormat(args.topics_format))
     topics = query_iterator.topics
