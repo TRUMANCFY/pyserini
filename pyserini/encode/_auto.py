@@ -23,7 +23,6 @@ from collections import OrderedDict
 from pyserini.encode import DocumentEncoder, QueryEncoder
 
 from sentence_transformers import SentenceTransformer
-from InstructorEmbedding import INSTRUCTOR
 
 class AutoDocumentEncoder(DocumentEncoder):
     def __init__(self, model_name, tokenizer_name=None, device='cuda:0', pooling='cls', l2_norm=False):
@@ -179,6 +178,7 @@ class SentenceTransformerDocumentEncoder(DocumentEncoder):
 class InstructorDocumentEncoder(DocumentEncoder):
     def __init__(self, model_name, device='cuda:0'):
         self.device = device
+        from InstructorEmbedding import INSTRUCTOR
         self.model = INSTRUCTOR(model_name)
         self.model.to(self.device)
 
@@ -230,6 +230,7 @@ class SentenceTransformerQueryEncoder(QueryEncoder):
 class InstructorQueryEncoder(QueryEncoder):
     def __init__(self, model_name: str, tokenizer_name=None, device: str = 'cuda:0', prefix=None):
         self.device = device
+        from InstructorEmbedding import INSTRUCTOR
         self.model = INSTRUCTOR(model_name)
         self.model.to(self.device)
 
